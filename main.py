@@ -1,11 +1,13 @@
-import pygame, pygame.display, pygame.event, pygame.time, pygame.image, math
+import pygame, pygame.display, pygame.event, pygame.time, pygame.image, math, pygame.mixer
 from pygame import Color, Surface, transform, draw
+from pygame.mixer import Sound
 from random import randint
 
 TICKEVENT = pygame.USEREVENT + 1
 FPS = 30
 HEIGHTMAP_LEN = 2000
 HEIGHTMAP_XRES = 5
+G_ACCEL = 10
 
 class Bus:
     def __init__(self):
@@ -15,23 +17,41 @@ class Bus:
         self.front_wheel = (225, 75 - 13, 12)
         self.wheelbase = self.front_wheel[0] - self.back_wheel[0]
 
-        self.pos = 0
-        self.speed = 0
-        self.angle = 0
-        self.altitude = 0
+        self.mass = 10000   # Rough mass in kg
+        self.speed = 0      # Horizontal speed in pixel/s
+        self.angle = 0      # Angle in radians
+        self.pos = 0        # Offset from start in pixels
+        self.altitude = 0   # Approximate altitude in pixels
+
+
+class Engine:
+    def __init__(self):
+        self.revs = 0       # 2000 typical??
+        self.max_revs = 6000    # ??
+        self.throttle = 0   # 0-1
+        self.clutch = 1     # 0-1, clutch engagement
+        self.gears = {'N': 0.0, 'R': -0.001, '1': 0.001, '2': 0.005, '3': 0.01}
+        self.gear = 'N'
+
+    def ratio(self):
+        return self.gears[self.gear]
 
 
 class State:
 
     def __init__(self):
         self.bus = Bus()
+        self.engine = Engine()
+
+        self.engine_noise = Sound("bus_engine.ogg")
 
         self.heightmap = [0 for i in range(HEIGHTMAP_LEN)]
         current_height = 0.0
-        delta = 0
+        delta = 0.0
         for i in range(len(self.heightmap)):
             self.heightmap[i] = int(current_height)
             delta += (randint(-1, 1) / 10)
+            delta *= 0.99 # Ensure that hills smooth out
             current_height += delta
 
 
@@ -44,7 +64,7 @@ def redraw_bg(state, screen):
     width, height = screen.get_size()
     # Draw the background
     for x in range(width):
-        h = get_height(x - (width // 2) + state.bus.pos, state)
+        h = get_height(x - (width // 2) + int(state.bus.pos), state)
         h -= state.bus.altitude # Keep the bus centred
         draw.line(screen, Color(0, 0, 0), (x, height), (x, (height // 2) - h))
 
@@ -56,8 +76,8 @@ def redraw_bus(bus, screen):
     # Calculate the wheel heights and bus angle
     # FIXME: This is fairly naive... does not account for the wheels moving
     #        inwards/outwards as the bus rotates.
-    back_wheel_height = get_height(bus.pos - (bus.img.get_width() // 2) + bus.back_wheel[0], state)
-    front_wheel_height = get_height(bus.pos - (bus.img.get_width() // 2) + bus.front_wheel[0], state)
+    back_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.back_wheel[0], state)
+    front_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.front_wheel[0], state)
     bus.angle = math.sin((front_wheel_height - back_wheel_height) / bus.wheelbase)
     
     # Update the bus altitude...
@@ -84,16 +104,60 @@ def redraw(state, screen):
 
 def tick(state):
     """ Update the game state """
-    state.bus.pos += int(state.bus.speed)
-    state.bus.speed -= state.bus.angle # Psuedo gravity...
+    bus = state.bus
+    engine = state.engine
+
+    # FIXME: Lots of random constants! Not terribly physical!
+
+    engine_speed = engine.revs * engine.ratio() * engine.clutch
+    speed_delta = engine_speed - bus.speed
+    if engine.ratio() != 0:
+        torque = abs((1 / engine.ratio()) * engine.clutch * 10)
+    else:
+        torque = 0
+
+    engine_force = speed_delta * torque
+
+    engine.revs -= engine_force / 200
+    engine.revs += engine.throttle * 100
+
+    # FIXME: Hacked engine noise to show revs... should probably show throttle?
+    # The sound "pitch" normally changes for revs instead?
+    engine.revs = max(min(engine.revs, engine.max_revs), 0) # Cap engine revs.
+    #state.engine_noise.set_volume(engine.throttle) # 0-1
+    state.engine_noise.set_volume(engine.revs / engine.max_revs) # 0-1
+    
+
+    # Update the bus model
+    accel = -math.asin(bus.angle) * G_ACCEL     # Gravity
+    accel += engine_force / bus.mass            # Engine influence
+    accel -= bus.speed * 500 / bus.mass         # Dynamic friction
+    bus.speed += accel
+    # Static friction
+    if bus.speed > 0:
+        bus.speed = max(0, bus.speed - 0.5)
+    else:
+        bus.speed = min(0, bus.speed + 0.5)
+    bus.pos += bus.speed
 
 
 def handle_event(ev, state):
     """ Handle an event """
-    if ev.type == pygame.KEYDOWN and ev.key == pygame.K_RIGHT:
-        state.bus.speed += 1
-    if ev.type == pygame.KEYDOWN and ev.key == pygame.K_LEFT:
-        state.bus.speed -= 1
+    if ev.type == pygame.KEYDOWN:
+        if ev.key == pygame.K_RIGHT:
+            state.engine.throttle = min(state.engine.throttle + 0.1, 1)
+        if ev.key == pygame.K_LEFT:
+            state.engine.throttle = max(state.engine.throttle - 0.1, 0)
+        if ev.key == pygame.K_1:
+            state.engine.gear = '1'
+        if ev.key == pygame.K_2:
+            state.engine.gear = '2'
+        if ev.key == pygame.K_3:
+            state.engine.gear = '3'
+        if ev.key == pygame.K_r:
+            state.engine.gear = 'R'
+        if ev.key == pygame.K_n:
+            state.engine.gear = 'N'
 
 
 if __name__ == "__main__":
@@ -103,6 +167,7 @@ if __name__ == "__main__":
     pygame.time.set_timer(TICKEVENT, 1000 // FPS)
 
     state = State()
+    state.engine_noise.play(loops=-1) # Start the engine running.
 
     try:
         while True:
