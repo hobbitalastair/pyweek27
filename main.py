@@ -18,6 +18,7 @@ class Bus:
         self.pos = 0
         self.speed = 0
         self.angle = 0
+        self.altitude = 0
 
 
 class State:
@@ -26,10 +27,12 @@ class State:
         self.bus = Bus()
 
         self.heightmap = [0 for i in range(HEIGHTMAP_LEN)]
-        current_height = 0
+        current_height = 0.0
+        delta = 0
         for i in range(len(self.heightmap)):
-            self.heightmap[i] = current_height
-            current_height += randint(-1, 1)
+            self.heightmap[i] = int(current_height)
+            delta += (randint(-1, 1) / 10)
+            current_height += delta
 
 
 def get_height(x, state):
@@ -42,6 +45,7 @@ def redraw_bg(state, screen):
     # Draw the background
     for x in range(width):
         h = get_height(x - (width // 2) + state.bus.pos, state)
+        h -= state.bus.altitude # Keep the bus centred
         draw.line(screen, Color(0, 0, 0), (x, height), (x, (height // 2) - h))
 
 
@@ -55,6 +59,9 @@ def redraw_bus(bus, screen):
     back_wheel_height = get_height(bus.pos - (bus.img.get_width() // 2) + bus.back_wheel[0], state)
     front_wheel_height = get_height(bus.pos - (bus.img.get_width() // 2) + bus.front_wheel[0], state)
     bus.angle = math.sin((front_wheel_height - back_wheel_height) / bus.wheelbase)
+    
+    # Update the bus altitude...
+    bus.altitude = (back_wheel_height + front_wheel_height) // 2
 
     # Calculate the change to the wheel y position.
     mid_to_wheel_x = (bus.img.get_width() // 2) - bus.back_wheel[0]
@@ -64,18 +71,21 @@ def redraw_bus(bus, screen):
     
     bus_img = transform.rotate(bus.img, bus.angle * 180 / 3.14)
     screen.blit(bus_img, ((width - bus_img.get_width()) // 2,
-                          (height - bus_img.get_height()) // 2 - back_wheel_height + adjusted_mid_to_wheel_y - bus.back_wheel[2]))
+                          (height - bus_img.get_height()) // 2 \
+                            + adjusted_mid_to_wheel_y - bus.back_wheel[2] \
+                            - back_wheel_height + bus.altitude))
 
 def redraw(state, screen):
     """ Redraw the current game state """
     screen.fill(Color(255, 255, 0))
-    redraw_bg(state, screen)
     redraw_bus(state.bus, screen)
+    redraw_bg(state, screen)
 
 
 def tick(state):
     """ Update the game state """
-    state.bus.pos += state.bus.speed
+    state.bus.pos += int(state.bus.speed)
+    state.bus.speed -= state.bus.angle # Psuedo gravity...
 
 
 def handle_event(ev, state):
