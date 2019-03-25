@@ -1,4 +1,4 @@
-import pygame, pygame.display, pygame.event, pygame.time, pygame.image, math, pygame.mixer
+import pygame, pygame.display, pygame.event, pygame.time, pygame.image, math, pygame.mixer, pygame.font
 from pygame import Color, Surface, transform, draw
 from pygame.mixer import Sound
 from random import randint
@@ -24,6 +24,12 @@ class Bus:
         self.altitude = 0   # Approximate altitude in pixels
 
 
+class Stop:
+    def __init__(self, pos):
+        self.img = pygame.image.load("stop.png")
+        self.pos = pos
+
+
 class Engine:
     def __init__(self):
         self.revs = 0       # 2000 typical??
@@ -42,6 +48,7 @@ class State:
     def __init__(self):
         self.bus = Bus()
         self.engine = Engine()
+        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / 10 )) for i in range(10)]
 
         self.engine_noise = Sound("bus_engine.ogg")
 
@@ -60,6 +67,16 @@ def get_height(x, state):
     return state.heightmap[i]
 
 
+def redraw_stops(state, screen):
+    for stop in state.stops:
+        stop_height = min(get_height(stop.pos - stop.img.get_width() // 2, state),
+                          get_height(stop.pos + stop.img.get_width() // 2, state))
+        y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
+        y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
+        x = stop.pos + (screen.get_width() - stop.img.get_width()) // 2 - int(state.bus.pos)
+        screen.blit(stop.img, (x, y))
+
+
 def redraw_bg(state, screen):
     width, height = screen.get_size()
     # Draw the background
@@ -69,37 +86,54 @@ def redraw_bg(state, screen):
         draw.line(screen, Color(0, 0, 0), (x, height), (x, (height // 2) - h))
 
 
-def redraw_bus(bus, screen):
-    """ Redraw the bus on the display """
-    width, height = screen.get_size()
+def position_bus(state, screen):
+    """ Calculate the bus position; required for keeping the bus centered """
+    bus = state.bus
 
     # Calculate the wheel heights and bus angle
     # FIXME: This is fairly naive... does not account for the wheels moving
     #        inwards/outwards as the bus rotates.
-    back_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.back_wheel[0], state)
-    front_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.front_wheel[0], state)
-    bus.angle = math.sin((front_wheel_height - back_wheel_height) / bus.wheelbase)
+    bus.back_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.back_wheel[0], state)
+    bus.front_wheel_height = get_height(int(bus.pos) - (bus.img.get_width() // 2) + bus.front_wheel[0], state)
+    bus.angle = math.sin((bus.front_wheel_height - bus.back_wheel_height) / bus.wheelbase)
     
     # Update the bus altitude...
-    bus.altitude = (back_wheel_height + front_wheel_height) // 2
+    bus.altitude = (bus.back_wheel_height + bus.front_wheel_height) // 2
+
+
+def redraw_bus(state, screen):
+    """ Redraw the bus on the display """
+    width, height = screen.get_size()
+    bus = state.bus
 
     # Calculate the change to the wheel y position.
     mid_to_wheel_x = (bus.img.get_width() // 2) - bus.back_wheel[0]
     mid_to_wheel_y = (bus.img.get_height() // 2) - bus.back_wheel[1]
     hyp = math.sqrt(mid_to_wheel_x**2 + mid_to_wheel_y**2)
     adjusted_mid_to_wheel_y = math.asin(math.sin(mid_to_wheel_y / hyp) - bus.angle) * hyp
-    
+
     bus_img = transform.rotate(bus.img, bus.angle * 180 / 3.14)
     screen.blit(bus_img, ((width - bus_img.get_width()) // 2,
                           (height - bus_img.get_height()) // 2 \
                             + adjusted_mid_to_wheel_y - bus.back_wheel[2] \
-                            - back_wheel_height + bus.altitude))
+                            - bus.back_wheel_height + bus.altitude))
 
-def redraw(state, screen):
+
+def redraw_instruments(state, screen, font):
+    """ Redraw instruments """
+    text = "Speed: {}, RPM: {}".format(round(state.bus.speed), round(state.engine.revs))
+    img = font.render(text, True, Color(255, 255, 255), Color(0, 0, 0))
+    screen.blit(img, [(screen.get_size()[i] - img.get_size()[i]) // (2 - i) for i in range(2)])
+
+
+def redraw(state, screen, font):
     """ Redraw the current game state """
-    screen.fill(Color(255, 255, 0))
-    redraw_bus(state.bus, screen)
+    screen.fill(Color(100, 190, 255))
+    position_bus(state, screen)
+    redraw_stops(state, screen)
+    redraw_bus(state, screen)
     redraw_bg(state, screen)
+    redraw_instruments(state, screen, font)
 
 
 def tick(state):
@@ -162,9 +196,11 @@ def handle_event(ev, state):
 
 if __name__ == "__main__":
     pygame.init()
-    screen = pygame.display.set_mode()
+    screen = pygame.display.set_mode((1280, 700))
     pygame.display.flip()
     pygame.time.set_timer(TICKEVENT, 1000 // FPS)
+
+    font = pygame.font.SysFont("Terminus", 18)
 
     state = State()
     state.engine_noise.play(loops=-1) # Start the engine running.
@@ -177,7 +213,7 @@ if __name__ == "__main__":
                 break
             elif event.type == TICKEVENT:
                 tick(state)
-                redraw(state, screen)
+                redraw(state, screen, font)
                 pygame.display.flip()
             else:
                 handle_event(event, state)
