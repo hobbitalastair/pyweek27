@@ -7,7 +7,6 @@ TICKEVENT = pygame.USEREVENT + 1
 FPS = 30
 HEIGHTMAP_LEN = 2000
 HEIGHTMAP_XRES = 5
-G_ACCEL = 10
 
 class Bus:
     def __init__(self):
@@ -48,6 +47,7 @@ class State:
     def __init__(self):
         self.bus = Bus()
         self.engine = Engine()
+        self.brake = 0
         self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / 10 )) for i in range(10)]
 
         self.engine_noise = Sound("bus_engine.ogg")
@@ -163,15 +163,18 @@ def tick(state):
     
 
     # Update the bus model
-    accel = -math.asin(bus.angle) * G_ACCEL     # Gravity
+    accel = -math.asin(bus.angle) * 5           # Gravity
     accel += engine_force / bus.mass            # Engine influence
     accel -= bus.speed * 500 / bus.mass         # Dynamic friction
+    accel -= 1000 * state.brake * bus.speed / bus.mass    # Braking force
     bus.speed += accel
-    # Static friction
-    if bus.speed > 0:
-        bus.speed = max(0, bus.speed - 0.5)
-    else:
-        bus.speed = min(0, bus.speed + 0.5)
+    # Static friction (brake + bus)
+    if bus.speed != 0:
+        static_brake = (0.05 * state.brake + 0.005) / bus.speed
+        if abs(static_brake) > abs(bus.speed):
+            bus.speed = 0
+        else:
+            bus.speed -= static_brake
     bus.pos += bus.speed
 
 
@@ -192,6 +195,14 @@ def handle_event(ev, state):
             state.engine.gear = 'R'
         if ev.key == pygame.K_n:
             state.engine.gear = 'N'
+        if ev.key == pygame.K_b:
+            state.brake = 1
+            state.engine.throttle = 0
+            state.engine.clutch = 0
+    if ev.type == pygame.KEYUP:
+        if ev.key == pygame.K_b:
+            state.brake = 0
+            state.engine.clutch = 1
 
 
 if __name__ == "__main__":
