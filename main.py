@@ -7,6 +7,7 @@ TICKEVENT = pygame.USEREVENT + 1
 FPS = 30
 HEIGHTMAP_LEN = 2000
 HEIGHTMAP_XRES = 5
+STOPS = 2
 
 class Bus:
     def __init__(self):
@@ -16,11 +17,14 @@ class Bus:
         self.front_wheel = (225, 75 - 13, 12)
         self.wheelbase = self.front_wheel[0] - self.back_wheel[0]
 
+        self.seats = {30, 50, 70, 90, 110, 130, 150, 170, 190, 210, 230, 250}
+
         self.mass = 10000   # Rough mass in kg
         self.speed = 0      # Horizontal speed in pixel/s
         self.angle = 0      # Angle in radians
         self.pos = 0        # Offset from start in pixels
         self.altitude = 0   # Approximate altitude in pixels
+        self.people = {}    # Person: offset
 
 
 class Stop:
@@ -42,13 +46,32 @@ class Engine:
         return self.gears[self.gear]
 
 
+class Person:
+    def __init__(self, start, end):
+        self.start = start
+        self.end = end
+        self.pos = start
+        self.height = 40
+        self.delivered = False
+
+
 class State:
 
     def __init__(self):
         self.bus = Bus()
         self.engine = Engine()
         self.brake = 0
-        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / 10 )) for i in range(10)]
+        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / (STOPS - 1))) for i in range(STOPS)]
+
+        self.people = set()
+        count = randint(5, 10)
+        while len(self.people) < count:
+            start_stop = randint(0, len(self.stops) - 2)
+            end_stop = randint(start_stop, len(self.stops) - 1)
+            start = self.stops[start_stop].pos + randint(-60, 60) # Random placement to avoid overlapping...
+            end = self.stops[end_stop].pos
+            if start_stop < end_stop:
+                self.people.add(Person(start, end))
 
         self.engine_noise = Sound("bus_engine.ogg")
 
@@ -63,18 +86,17 @@ class State:
 
 
 def get_height(x, state):
-    i = max(min(x // HEIGHTMAP_XRES, len(state.heightmap) - 1), 0)
+    i = max(min(int(x) // HEIGHTMAP_XRES, len(state.heightmap) - 1), 0)
     return state.heightmap[i]
 
 
-def redraw_stops(state, screen):
-    for stop in state.stops:
-        stop_height = min(get_height(stop.pos - stop.img.get_width() // 2, state),
-                          get_height(stop.pos + stop.img.get_width() // 2, state))
-        y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
-        y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
-        x = stop.pos + (screen.get_width() - stop.img.get_width()) // 2 - int(state.bus.pos)
-        screen.blit(stop.img, (x, y))
+def redraw_stop(state, screen, stop):
+    stop_height = min(get_height(stop.pos - stop.img.get_width() // 2, state),
+                      get_height(stop.pos + stop.img.get_width() // 2, state))
+    y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
+    y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
+    x = stop.pos + (screen.get_width() - stop.img.get_width()) // 2 - int(state.bus.pos)
+    screen.blit(stop.img, (x, y))
 
 
 def redraw_bg(state, screen):
@@ -84,6 +106,11 @@ def redraw_bg(state, screen):
         h = get_height(x - (width // 2) + int(state.bus.pos), state)
         h -= state.bus.altitude # Keep the bus centred
         draw.line(screen, Color(0, 0, 0), (x, height), (x, (height // 2) - h))
+
+
+def redraw_person(state, screen, person):
+    y = (screen.get_height() // 2) - get_height(person.pos, state) + state.bus.altitude - person.height
+    draw.circle(screen, Color(230, 140, 140), (int(person.pos) + (screen.get_width() // 2) - int(state.bus.pos), y), 7)
 
 
 def position_bus(state, screen):
@@ -121,7 +148,7 @@ def redraw_bus(state, screen):
 
 def redraw_instruments(state, screen, font):
     """ Redraw instruments """
-    text = "Speed: {}, RPM: {}".format(round(state.bus.speed), round(state.engine.revs))
+    text = "Speed: {}, RPM: {}, Time: {}".format(round(state.bus.speed), round(state.engine.revs), pygame.time.get_ticks() // 1000)
     img = font.render(text, True, Color(255, 255, 255), Color(0, 0, 0))
     screen.blit(img, [(screen.get_size()[i] - img.get_size()[i]) // (2 - i) for i in range(2)])
 
@@ -130,9 +157,12 @@ def redraw(state, screen, font):
     """ Redraw the current game state """
     screen.fill(Color(100, 190, 255))
     position_bus(state, screen)
-    redraw_stops(state, screen)
-    redraw_bus(state, screen)
+    for stop in state.stops:
+        redraw_stop(state, screen, stop)
     redraw_bg(state, screen)
+    for person in state.people:
+        redraw_person(state, screen, person)
+    redraw_bus(state, screen)
     redraw_instruments(state, screen, font)
 
 
@@ -152,8 +182,9 @@ def tick(state):
 
     engine_force = speed_delta * torque
 
-    engine.revs -= engine_force / 200
+    engine.revs -= abs(engine_force) / 200
     engine.revs += engine.throttle * 100
+    engine.revs *= 0.98                         # Internal friction
 
     # FIXME: Hacked engine noise to show revs... should probably show throttle?
     # The sound "pitch" normally changes for revs instead?
@@ -176,6 +207,37 @@ def tick(state):
         else:
             bus.speed -= static_brake
     bus.pos += bus.speed
+
+    # Passengers
+    for person, offset in bus.people.items():
+        person.pos = bus.pos + offset
+
+    if bus.speed == 0:
+        # Board the bus
+        for person in state.people.difference(bus.people.keys()):
+            if abs(person.pos - bus.pos) < 100 and abs(person.pos - person.end) > 100:
+                offsets = list(bus.seats.difference(bus.people.values()))
+                if len(offsets) == 0:
+                    offset = 0
+                else:
+                    offset = offsets[randint(0, len(offsets) - 1)]
+                offset -= bus.img.get_width() // 2
+                bus.people[person] = offset
+
+        # Leave the bus
+        for person in bus.people.copy():
+            if abs(person.end - person.pos) < 100:
+                bus.people.pop(person)
+                person.delivered = True
+
+    # Check for the end of game condition
+    finished = True
+    for person in state.people:
+        if not person.delivered:
+            finished = False
+    if finished:
+        print("Elapsed time: {}".format(pygame.time.get_ticks() // 1000))
+        pygame.event.post(pygame.event.Event(pygame.QUIT))
 
 
 def handle_event(ev, state):
