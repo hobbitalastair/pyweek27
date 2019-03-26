@@ -28,6 +28,8 @@ class Bus:
 
 
 class Stop:
+    sign = pygame.image.load("stop_sign.png")
+
     def __init__(self, pos):
         self.img = pygame.image.load("stop.png")
         self.pos = pos
@@ -94,9 +96,13 @@ def redraw_stop(state, screen, stop):
     stop_height = min(get_height(stop.pos - stop.img.get_width() // 2, state),
                       get_height(stop.pos + stop.img.get_width() // 2, state))
     y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
-    y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
     x = stop.pos + (screen.get_width() - stop.img.get_width()) // 2 - int(state.bus.pos)
     screen.blit(stop.img, (x, y))
+
+    sign_height = get_height(stop.pos - stop.img.get_width() // 2 - 30, state) # Shifted sign by 30px
+    y = (screen.get_height() // 2) - stop.sign.get_height() - sign_height + state.bus.altitude
+    x = stop.pos + (screen.get_width() - stop.img.get_width() - stop.sign.get_width()) // 2 - int(state.bus.pos) - 30
+    screen.blit(stop.sign, (x, y))
 
 
 def redraw_bg(state, screen):
