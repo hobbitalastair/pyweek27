@@ -221,7 +221,7 @@ def tick(state):
     if bus.speed == 0:
         # Board the bus
         for person in state.people.difference(bus.people.keys()):
-            if abs(person.pos - bus.pos) < 100 and abs(person.pos - person.end) > 100:
+            if abs(person.pos - bus.pos) < 100 and abs(bus.pos - person.end) > 100:
                 offsets = list(bus.seats.difference(bus.people.values()))
                 if len(offsets) == 0:
                     offset = 0
@@ -232,7 +232,7 @@ def tick(state):
 
         # Leave the bus
         for person in bus.people.copy():
-            if abs(person.end - person.pos) < 100:
+            if abs(person.end - bus.pos) < 100:
                 bus.people.pop(person)
                 person.delivered = True
 
