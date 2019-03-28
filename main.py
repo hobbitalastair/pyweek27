@@ -254,13 +254,20 @@ def tick(state):
             state.stops[bus.current_stop].arrival_time = pygame.time.get_ticks() // 1000
 
     # Check for the end of game condition
-    finished = True
-    for person in state.people:
-        if not person.delivered:
-            finished = False
-    if finished:
-        print("Elapsed time: {}".format(pygame.time.get_ticks() // 1000))
-        print("Overdue time: {}".format(int(sum((max(0, stop.arrival_time - stop.time) for stop in state.stops)))))
+    if bus.current_stop == len(state.stops) - 1:
+        overdue_time = 0
+        for stop in state.stops:
+            if stop.arrived:
+                overdue_time += max(0, stop.arrival_time - stop.time)
+        undelivered = 0
+        for person in state.people:
+            if not person.delivered:
+                undelivered += 1
+
+        print("Total time: {}".format(pygame.time.get_ticks() // 1000))
+        print("Overdue time: {}".format(round(overdue_time)))
+        print("Undelivered: {}".format(undelivered))
+        print("Score (small is better): {}".format(undelivered * 5 + round(overdue_time)))
         pygame.event.post(pygame.event.Event(pygame.QUIT))
 
 
