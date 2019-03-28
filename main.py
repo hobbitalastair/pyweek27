@@ -7,7 +7,7 @@ TICKEVENT = pygame.USEREVENT + 1
 FPS = 30
 HEIGHTMAP_LEN = 2000
 HEIGHTMAP_XRES = 5
-STOPS = 2
+STOPS = 3
 
 class Bus:
     def __init__(self):
@@ -26,13 +26,19 @@ class Bus:
         self.altitude = 0   # Approximate altitude in pixels
         self.people = {}    # Person: offset
 
+        self.current_stop = 0
+        self.next_stop = 1
+
 
 class Stop:
     sign = pygame.image.load("stop_sign.png")
 
-    def __init__(self, pos):
+    def __init__(self, pos, time):
         self.img = pygame.image.load("stop.png")
         self.pos = pos
+        self.time = time            # Target time of arrival, in ms
+        self.arrived = False
+        self.arrival_time = None    # Actual time of arrival
 
 
 class Engine:
@@ -63,7 +69,7 @@ class State:
         self.bus = Bus()
         self.engine = Engine()
         self.brake = 0
-        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / (STOPS - 1))) for i in range(STOPS)]
+        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / (STOPS - 1)), HEIGHTMAP_LEN * i / (STOPS * 40)) for i in range(STOPS)]
 
         self.people = set()
         count = randint(5, 10)
@@ -154,7 +160,7 @@ def redraw_bus(state, screen):
 
 def redraw_instruments(state, screen, font):
     """ Redraw instruments """
-    text = "Speed: {}, RPM: {}, Time: {}".format(round(state.bus.speed), round(state.engine.revs), pygame.time.get_ticks() // 1000)
+    text = "Speed: {}, RPM: {}, Target time: {}".format(round(state.bus.speed), round(state.engine.revs), round(state.stops[state.bus.next_stop].time - (pygame.time.get_ticks() // 1000)))
     img = font.render(text, True, Color(255, 255, 255), Color(0, 0, 0))
     screen.blit(img, [(screen.get_size()[i] - img.get_size()[i]) // (2 - i) for i in range(2)])
 
@@ -236,6 +242,17 @@ def tick(state):
                 bus.people.pop(person)
                 person.delivered = True
 
+        # Update the stop number
+        bus.current_stop = 0
+        for i, stop in enumerate(state.stops):
+            if abs(bus.pos - stop.pos) < 200:
+                bus.current_stop = i
+        
+        bus.next_stop = min(bus.current_stop + 1, len(state.stops) - 1)
+        if not state.stops[bus.current_stop].arrived:
+            state.stops[bus.current_stop].arrived = True
+            state.stops[bus.current_stop].arrival_time = pygame.time.get_ticks() // 1000
+
     # Check for the end of game condition
     finished = True
     for person in state.people:
@@ -243,6 +260,7 @@ def tick(state):
             finished = False
     if finished:
         print("Elapsed time: {}".format(pygame.time.get_ticks() // 1000))
+        print("Overdue time: {}".format(int(sum((max(0, stop.arrival_time - stop.time) for stop in state.stops)))))
         pygame.event.post(pygame.event.Event(pygame.QUIT))
 
 
