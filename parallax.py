@@ -11,6 +11,7 @@ MIN_Y = -1000
 MAX_Y = 1000
 MIN_Z = 1
 MAX_Z = 10
+SCALE_Z = 1
 MIN_RAD = 5
 MAX_RAD = 20
 COLOURS = [
@@ -31,10 +32,9 @@ def parallax(x, y, screen, objects):
     x_offset = (screen.get_width() // 2)
     y_offset = (screen.get_height() // 2)
     for obj in objects:
-        z = obj.z
+        z = obj.z / SCALE_Z
         pos = (int(x_offset + ((x + obj.x) / z)), int(y_offset - ((obj.y + y) / z)))
-        colour = COLOURS[obj.z - 1]
-        draw.circle(screen, colour, pos, obj.rad)
+        obj.render(screen, pos)
 
 
 class RandCircle:
@@ -42,7 +42,11 @@ class RandCircle:
         self.x = randint(MIN_X, MAX_X)
         self.y = randint(MIN_Y, MAX_Y)
         self.z = randint(MIN_Z, MAX_Z)
+        self.colour = COLOURS[self.z - 1]
         self.rad = randint(MIN_RAD, MAX_RAD)
+
+    def render(self, screen, pos):
+        draw.circle(screen, self.colour, pos, self.rad)
 
 class State:
     def __init__(self):
