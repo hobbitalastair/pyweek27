@@ -32,8 +32,8 @@ class Bus:
 
 
 class Stop:
-    sign = pygame.image.load("stop_sign.png")
-    img = pygame.image.load("stop.png")
+    img = pygame.image.load("stop_sign.png")
+    shelter = pygame.image.load("stop.png")
 
     def __init__(self, state, pos, time):
         self.x = pos
@@ -63,6 +63,39 @@ class Person:
     def render(self, screen, pos):
         x, y = pos
         draw.circle(screen, Color(230, 140, 140), (x, y - self.height), 7)
+
+
+class Backdrop:
+
+    def __init__(self, z):
+        self.x = 0
+        self.y = 0
+        self.z = z
+        if z == 2:
+            self.img = pygame.image.load("backdrop/landscape_0001_2_trees.png")
+        elif z == 3:
+            self.img = pygame.image.load("backdrop/landscape_0002_3_trees.png")
+        elif z == 4:
+            self.img = pygame.image.load("backdrop/landscape_0003_4_mountain.png")
+        elif z == 5:
+            self.img = pygame.image.load("backdrop/landscape_0004_5_clouds.png")
+        elif z == 6:
+            self.img = pygame.image.load("backdrop/landscape_0005_6_background.png")
+        else:
+            self.img = pygame.image.load("backdrop/landscape_0000_1_trees.png")
+
+    def render(self, screen, pos):
+        x, y = pos
+        x -= self.img.get_width() // 2
+        #y -= self.img.get_height() // 2
+        y -= self.img.get_height() * (2/3)
+        while x > 0:
+            x -= self.img.get_width()
+        while x < -self.img.get_width():
+            x += self.img.get_width()
+        while x < screen.get_width():
+            screen.blit(self.img, (x, y))
+            x += self.img.get_width()
 
 
 class Engine:
@@ -107,6 +140,8 @@ class State:
             end = self.stops[end_stop].x
             if start_stop < end_stop:
                 self.people.add(Person(self, start, end))
+
+        self.backdrops = [Backdrop(i) for i in (2, 3)]
 
 
 def get_height(x, state):
@@ -168,7 +203,7 @@ def redraw(state, screen, font):
     screen.fill(Color(100, 190, 255))
     position_bus(state, screen)
 
-    parallax(-state.bus.pos, -state.bus.altitude, screen, state.stops + list(state.people))
+    parallax(-state.bus.pos, -state.bus.altitude, screen, state.backdrops + state.stops + list(state.people))
 
     redraw_bg(state, screen)
     redraw_bus(state, screen)
