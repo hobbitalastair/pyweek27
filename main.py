@@ -2,6 +2,7 @@ import pygame, pygame.display, pygame.event, pygame.time, pygame.image, math, py
 from pygame import Color, Surface, transform, draw
 from pygame.mixer import Sound
 from random import randint
+from parallax import parallax
 
 TICKEVENT = pygame.USEREVENT + 1
 FPS = 30
@@ -32,13 +33,36 @@ class Bus:
 
 class Stop:
     sign = pygame.image.load("stop_sign.png")
+    img = pygame.image.load("stop.png")
 
-    def __init__(self, pos, time):
-        self.img = pygame.image.load("stop.png")
-        self.pos = pos
+    def __init__(self, state, pos, time):
+        self.x = pos
+        min_x = self.x - (self.img.get_width() // 2)
+        max_x = self.x + (self.img.get_width() // 2)
+        self.y = min((get_height(x, state) for x in range(min_x, max_x + 1))) - 2 # With margin for parallax
+        self.z = 1.05   # Add a slight parallax effect...
         self.time = time            # Target time of arrival, in ms
         self.arrived = False
         self.arrival_time = None    # Actual time of arrival
+
+    def render(self, screen, pos):
+        x, y = pos
+        screen.blit(self.img, (x - (self.img.get_width() // 2), y - self.img.get_height()))
+
+
+class Person:
+    def __init__(self, state, start, end):
+        self.start = start
+        self.end = end
+        self.x = start
+        self.y = get_height(self.x, state)
+        self.z = 1.03 # Should be 1 on the bus?
+        self.height = 40
+        self.delivered = False
+
+    def render(self, screen, pos):
+        x, y = pos
+        draw.circle(screen, Color(230, 140, 140), (x, y - self.height), 7)
 
 
 class Engine:
@@ -54,32 +78,12 @@ class Engine:
         return self.gears[self.gear]
 
 
-class Person:
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
-        self.pos = start
-        self.height = 40
-        self.delivered = False
-
-
 class State:
 
     def __init__(self):
         self.bus = Bus()
         self.engine = Engine()
         self.brake = 0
-        self.stops = [Stop(i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / (STOPS - 1)), HEIGHTMAP_LEN * i / (STOPS * 40)) for i in range(STOPS)]
-
-        self.people = set()
-        count = randint(5, 10)
-        while len(self.people) < count:
-            start_stop = randint(0, len(self.stops) - 2)
-            end_stop = randint(start_stop, len(self.stops) - 1)
-            start = self.stops[start_stop].pos + randint(-60, 60) # Random placement to avoid overlapping...
-            end = self.stops[end_stop].pos
-            if start_stop < end_stop:
-                self.people.add(Person(start, end))
 
         self.engine_noise = Sound("bus_engine.ogg")
 
@@ -92,23 +96,22 @@ class State:
             delta *= 0.99 # Ensure that hills smooth out
             current_height += delta
 
+        self.stops = [Stop(self, i * int(HEIGHTMAP_LEN * HEIGHTMAP_XRES / (STOPS - 1)), HEIGHTMAP_LEN * i / (STOPS * 40)) for i in range(STOPS)]
+
+        self.people = set()
+        count = randint(5, 10)
+        while len(self.people) < count:
+            start_stop = randint(0, len(self.stops) - 2)
+            end_stop = randint(start_stop, len(self.stops) - 1)
+            start = self.stops[start_stop].x + randint(-60, 60) # Random placement to avoid overlapping...
+            end = self.stops[end_stop].x
+            if start_stop < end_stop:
+                self.people.add(Person(self, start, end))
+
 
 def get_height(x, state):
     i = max(min(int(x) // HEIGHTMAP_XRES, len(state.heightmap) - 1), 0)
     return state.heightmap[i]
-
-
-def redraw_stop(state, screen, stop):
-    stop_height = min(get_height(stop.pos - stop.img.get_width() // 2, state),
-                      get_height(stop.pos + stop.img.get_width() // 2, state))
-    y = (screen.get_height() // 2) - stop.img.get_height() - stop_height + state.bus.altitude
-    x = stop.pos + (screen.get_width() - stop.img.get_width()) // 2 - int(state.bus.pos)
-    screen.blit(stop.img, (x, y))
-
-    sign_height = get_height(stop.pos - stop.img.get_width() // 2 - 30, state) # Shifted sign by 30px
-    y = (screen.get_height() // 2) - stop.sign.get_height() - sign_height + state.bus.altitude
-    x = stop.pos + (screen.get_width() - stop.img.get_width() - stop.sign.get_width()) // 2 - int(state.bus.pos) - 30
-    screen.blit(stop.sign, (x, y))
 
 
 def redraw_bg(state, screen):
@@ -118,11 +121,6 @@ def redraw_bg(state, screen):
         h = get_height(x - (width // 2) + int(state.bus.pos), state)
         h -= state.bus.altitude # Keep the bus centred
         draw.line(screen, Color(0, 0, 0), (x, height), (x, (height // 2) - h))
-
-
-def redraw_person(state, screen, person):
-    y = (screen.get_height() // 2) - get_height(person.pos, state) + state.bus.altitude - person.height
-    draw.circle(screen, Color(230, 140, 140), (int(person.pos) + (screen.get_width() // 2) - int(state.bus.pos), y), 7)
 
 
 def position_bus(state, screen):
@@ -169,12 +167,12 @@ def redraw(state, screen, font):
     """ Redraw the current game state """
     screen.fill(Color(100, 190, 255))
     position_bus(state, screen)
-    for stop in state.stops:
-        redraw_stop(state, screen, stop)
+
+    parallax(-state.bus.pos, -state.bus.altitude, screen, state.stops + list(state.people))
+
     redraw_bg(state, screen)
-    for person in state.people:
-        redraw_person(state, screen, person)
     redraw_bus(state, screen)
+
     redraw_instruments(state, screen, font)
 
 
@@ -222,12 +220,13 @@ def tick(state):
 
     # Passengers
     for person, offset in bus.people.items():
-        person.pos = bus.pos + offset
+        person.x = bus.pos + offset
+        person.y = get_height(person.x, state) # FIXME: Doesn't recalculate height properly...
 
     if bus.speed == 0:
         # Board the bus
         for person in state.people.difference(bus.people.keys()):
-            if abs(person.pos - bus.pos) < 100 and abs(bus.pos - person.end) > 100:
+            if abs(person.x - bus.pos) < 100 and abs(bus.pos - person.end) > 100:
                 offsets = list(bus.seats.difference(bus.people.values()))
                 if len(offsets) == 0:
                     offset = 0
@@ -245,7 +244,7 @@ def tick(state):
         # Update the stop number
         bus.current_stop = 0
         for i, stop in enumerate(state.stops):
-            if abs(bus.pos - stop.pos) < 200:
+            if abs(bus.pos - stop.x) < 200:
                 bus.current_stop = i
         
         bus.next_stop = min(bus.current_stop + 1, len(state.stops) - 1)
